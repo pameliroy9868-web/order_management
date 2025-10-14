@@ -1,34 +1,50 @@
 # Order Management System
 
-This Streamlit app extracts order details from PDFs and saves them to a PostgreSQL database.
+A Streamlit-based application to scan order PDFs, edit extracted data, save it to PostgreSQL, and track order status changes.
 
-## Requirements
-- Python 3.9+
+---
+
+## Features
+
+- Scan order PDFs and extract order details.
+- Edit extracted orders before saving.
+- Save orders to PostgreSQL database.
+- Search orders by Company Name, Order ID, Courier Partner, or SKU.
+- Track order status changes (e.g., Picked Up, Delivered) with full history.
+- Change order status and see the sequence flow.
+
+---
+
+## Prerequisites
+
+- Python 3.10+
 - PostgreSQL 12+
-- Streamlit
-- pdfplumber
-- psycopg2
-- pandas
+- Git
 
-## Installation
-1. Clone the repository:
+---
+
+## Setup Instructions
+
+### 1. Clone the Repository
+
 ```bash
-git clone https://github.com/yourusername/order_management.git
+git clone <repository_url>
 cd order_management
-```
 
-2. Install dependencies:
-```bash
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Windows
+python -m venv .venv
+.venv\Scripts\activate
+
+pip install --upgrade pip
 pip install -r requirements.txt
-```
 
-3. Create PostgreSQL database and tables using SQL scripts inside `db_scripts` folder.
 
-4. Update database connection details in `db/db.py` (host, user, password, port).
+CREATE DATABASE orders_db;
 
-5. Run the Streamlit app:
-```bash
+
 streamlit run app.py
-```
 
-6. Upload PDF and save extracted orders to the database.

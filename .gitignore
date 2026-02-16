@@ -1,0 +1,7 @@
+.venv/
+
+# Ignore compiled Python files and caches
+**/__pycache__/
+**/*.pyc
+
+# Keep any explicit exceptions above if needed

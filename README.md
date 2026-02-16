@@ -48,3 +48,8 @@ CREATE DATABASE orders_db;
 
 streamlit run app.py
 
+
+if plotly is not installed - 
+python -m pip install plotly
+
+

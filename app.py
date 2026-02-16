@@ -1,7 +1,17 @@
 import streamlit as st
 import pandas as pd
+# try:
+#     import plotly.express as px
+# except Exception:
+    # px = None
+    # Plotly unavailable; GUI will show a warning when attempting to plot
 from scan_orders.extract_pdf import extract_orders
 from db.db import save_to_db, get_all_orders, change_order_status
+from db.create_returns import insert_meesho_returns
+from db.order_status import get_order_status
+#from utils.status_tracker import show_status_tracker
+from utils.journey_tracker import show_journey_tracker
+from utils.csv import *
 
 st.set_page_config(page_title="Order Management System", layout="wide")
 
@@ -10,7 +20,7 @@ st.set_page_config(page_title="Order Management System", layout="wide")
 # -----------------------
 menu_choice = st.radio(
     "Menu",
-    ("Home", "Scan Orders", "Search Orders", "Change Status"),
+    ("Home", "Scan Orders", "Search Orders", "Change Status","Return Upload",  "Order Status"),
     horizontal=True
 )
 
@@ -46,7 +56,6 @@ elif menu_choice == "Scan Orders":
     if uploaded_file is not None:
         st.info("Extracting data from PDF...")
         extracted_data = extract_orders(uploaded_file)
-        
         if extracted_data:
             st.success("Data extracted successfully!")
 
@@ -66,51 +75,100 @@ elif menu_choice == "Scan Orders":
 # Search Orders Page
 # -----------------------
 elif menu_choice == "Search Orders":
+
     st.title("Search Orders")
 
     orders = get_all_orders()
-    
+
     if orders:
+
         df_orders = pd.DataFrame(orders)
 
-        # Fill missing columns and NaNs
-        for col in ["company_name", "order_id", "courier_partner", "sku_id", "status"]:
-            if col not in df_orders.columns:
-                df_orders[col] = ""
-            else:
-                df_orders[col] = df_orders[col].fillna("")
+        # Fill missing values
+        df_orders = df_orders.fillna("")
 
         st.subheader("All Orders")
 
-        # Filtering widgets
-        company_filter = st.text_input("Filter by Company Name")
-        order_id_filter = st.text_input("Filter by Order ID")
-        courier_filter = st.text_input("Filter by Courier Partner")
-        sku_filter = st.text_input("Filter by SKU ID")
-        status_filter = st.text_input("Filter by Status")
+        # Filters
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            company_filter = st.text_input("Company")
+
+        with col2:
+            order_id_filter = st.text_input("Order ID")
+
+        with col3:
+            courier_filter = st.text_input("Courier")
+
+        col4, col5 = st.columns(2)
+
+        with col4:
+            sku_filter = st.text_input("SKU")
+
+        with col5:
+            status_filter = st.selectbox(
+                "Status",
+                ["", "Ordered", "Shipped", "Delivered", "Returned", "Claim Submitted", "Claim Approved", "Refund Completed"]
+            )
+
 
         filtered_df = df_orders.copy()
+
+        
+
         if company_filter:
-            filtered_df = filtered_df[filtered_df['company_name'].str.contains(company_filter, case=False, na=False)]
+            filtered_df = filtered_df[
+                filtered_df['company_name'].str.contains(company_filter, case=False)
+            ]
+
         if order_id_filter:
-            filtered_df = filtered_df[filtered_df['order_id'].str.contains(order_id_filter, case=False, na=False)]
+            filtered_df = filtered_df[
+                filtered_df['order_id'].str.contains(order_id_filter, case=False)
+            ]
+
         if courier_filter:
-            filtered_df = filtered_df[filtered_df['courier_partner'].str.contains(courier_filter, case=False, na=False)]
+            filtered_df = filtered_df[
+                filtered_df['courier_partner'].str.contains(courier_filter, case=False)
+            ]
+
         if sku_filter:
-            filtered_df = filtered_df[filtered_df['sku_id'].str.contains(sku_filter, case=False, na=False)]
+            filtered_df = filtered_df[
+                filtered_df['sku_id'].str.contains(sku_filter, case=False)
+            ]
+
         if status_filter:
-            filtered_df = filtered_df[filtered_df['status'].str.contains(status_filter, case=False, na=False)]
+            filtered_df = filtered_df[
+                filtered_df['status'] == status_filter
+            ]
+
+        filtered_df = filtered_df.fillna("")
+
+        if "event_date" in filtered_df.columns:
+            filtered_df = filtered_df.sort_values("event_date", ascending=False)
+
+        # Sort newest first
+        # filtered_df = filtered_df.sort_values("event_date", ascending=False)
+
 
         # Editable table
-        edited_df = st.data_editor(filtered_df, num_rows="dynamic")
+        edited_df = st.data_editor(
+            filtered_df,
+            use_container_width=True,
+            num_rows="dynamic"
+        )
 
-        # Save changes
+
+        # Save button
         if st.button("Save Changes"):
-            save_to_db(edited_df.to_dict(orient="records"))
+
+            save_to_db(edited_df.to_dict("records"))
+
             st.success("Changes saved successfully!")
 
     else:
-        st.warning("No orders found in the database.")
+
+        st.warning("No orders found")
 
 # -----------------------
 # Change Status Page
@@ -151,3 +209,115 @@ elif menu_choice == "Change Status":
                 )
                 st.subheader("Order Status History")
                 st.dataframe(history_df)
+
+elif menu_choice == "Return Upload":
+    st.header("Upload Returns CSV")
+    uploaded_file = st.file_uploader("Upload Returns CSV", type=["csv"])
+    if uploaded_file:
+        df = read_meesho_returns_csv(uploaded_file)
+        st.dataframe(df)
+
+        if st.button("Insert into Database"):
+            insert_meesho_returns(df)
+            st.success("Returns inserted successfully")
+elif menu_choice == "Order Status":
+    st.header("Order Journey Tracker")
+
+    search_value = st.text_input("Enter Order ID or AWB")
+
+    if st.button("Track Order"):
+
+        results = get_order_status(search_value)
+        # Debug: show raw results in the Streamlit UI to avoid relying on terminal logs
+        # st.subheader("Raw results from get_order_status")
+        # st.write(results)
+
+        if results:
+
+            df = pd.DataFrame(results)
+
+            # Robust parsing of `event_date`: normalize, coerce invalid values, and drop them
+            if "event_date" not in df.columns:
+                st.warning("Results do not contain an `event_date` column; timeline unavailable.")
+                # proceed to show raw results below instead of stopping the script
+                df = pd.DataFrame(results)
+                has_dates = False
+            else:
+                has_dates = True
+
+            df["event_date"] = df["event_date"].astype(str).str.strip()
+            df.loc[df["event_date"].str.lower() == "event_date", "event_date"] = pd.NA
+
+            df["event_date"] = pd.to_datetime(
+                df["event_date"], errors="coerce", infer_datetime_format=True
+            )
+
+            df = df.dropna(subset=["event_date"])
+
+            if df.empty:
+                st.warning("No valid event dates found for this order; cannot show timeline or status history.")
+                has_dates = False
+            else:
+                df = df.sort_values("event_date")
+                latest_status = df.iloc[-1]["status"]
+
+            # Ensure we have a latest_status to render the journey tracker even when dates are missing
+            if not has_dates:
+                if results and isinstance(results, list) and len(results) > 0:
+                    latest_status = results[-1].get("status")
+                else:
+                    latest_status = None
+
+            if latest_status:
+                show_journey_tracker(latest_status)
+                st.divider()
+
+                # # SHOW STATUS BADGE
+                # if latest_status == "Delivered":
+                #     st.success("Delivered")
+
+                # elif latest_status == "Returned":
+                #     st.error("Returned")
+
+            st.divider()
+
+            # # SHOW STATUS BADGE
+            # if latest_status == "Delivered":
+            #     st.success("Delivered")
+
+            # elif latest_status == "Returned":
+            #     st.error("Returned")
+
+            # elif "Claim" in latest_status:
+            #     st.warning(latest_status)
+
+            # else:
+            #     st.info(latest_status)
+
+
+            # st.divider()
+
+            # # TIMELINE GRAPH
+            # if px is None:
+            #     st.warning("Plotly is not installed. Install with `pip install plotly` to see the timeline chart.")
+            # else:
+            #     fig = px.scatter(
+            #         df,
+            #         x="event_date",
+            #         y="status",
+            #         title="Order Journey Timeline",
+            #         size_max=15
+            #     )
+
+            #     st.plotly_chart(fig, use_container_width=True)
+
+            # st.divider()
+
+            # st.subheader("Full Order History")
+
+            st.dataframe(df, use_container_width=True)
+
+        else:
+
+            st.warning("No order found")
+

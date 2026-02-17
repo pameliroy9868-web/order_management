@@ -63,7 +63,9 @@ def get_all_orders():
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    return rows  # list of dictionaries
+    columns = [desc[0] for desc in cursor.description]
+    df = pd.DataFrame(rows, columns=columns)
+    return df  # list of dictionaries
 
 
 # -----------------------

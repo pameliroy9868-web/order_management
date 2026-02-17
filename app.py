@@ -1,195 +1,217 @@
 import streamlit as st
 import pandas as pd
-# try:
-#     import plotly.express as px
-# except Exception:
-    # px = None
-    # Plotly unavailable; GUI will show a warning when attempting to plot
+import plotly.express as px
+
+# your existing imports
 from scan_orders.extract_pdf import extract_orders
 from db.db import save_to_db, get_all_orders, change_order_status
 from db.search_orders import search_all_orders
 from db.create_returns import insert_meesho_returns
-from db.order_status import get_order_status
-#from utils.status_tracker import show_status_tracker
-from utils.journey_tracker import show_journey_tracker
-from utils.csv import *
+from db.insert_claims import insert_claims
+from utils.claims_csv import read_claims_csv
+from utils.csv import read_meesho_returns_csv
 
-st.set_page_config(page_title="Order Management System", layout="wide")
 
-# -----------------------
-# Horizontal Navigation Menu
-# -----------------------
-menu_choice = st.radio(
-    "Menu",
-    ("Home", "Scan Orders", "Search Orders", "Change Status","Return Upload",  "Order Status",  "Upload Claims", "Reports"),
-    horizontal=True
+# -----------------------------
+# PAGE CONFIG
+# -----------------------------
+st.set_page_config(
+    page_title="Order Management System",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# -----------------------
-# Home Page
-# -----------------------
-if menu_choice == "Home":
-    st.title("📦 Order Management System")
-    st.write("""
-        Welcome to the Order Management System! This app allows you to:
-        - Scan order PDFs and extract order details.
-        - Edit extracted orders before saving them to PostgreSQL.
-        - Search and filter orders by Company Name, Order ID, Courier, or SKU.
-        - Update order status and track the full history of each order.
+# -----------------------------
+# CUSTOM CSS
+# -----------------------------
+st.markdown("""
+<style>
 
-        Use the menu above to navigate:
-        1. **Scan Orders** – Upload PDFs and edit order details.
-        2. **Search Orders** – View and filter all saved orders.
-        3. **Change Status** – Update the status of an order and see its full status history.
-    """)
+/* metric card container */
+[data-testid="metric-container"] {
+    background-color: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
 
-    st.info("Get started by selecting a tab from the menu above.")
-    st.image("https://cdn-icons-png.flaticon.com/512/2910/2910767.png", width=150)
+/* metric label */
+[data-testid="metric-container"] label {
+    color: #555555 !important;
+    font-weight: 600;
+}
 
-# -----------------------
-# Scan Orders Page
-# -----------------------
-elif menu_choice == "Scan Orders":
-    st.title("Scan Orders")
+/* metric value */
+[data-testid="metric-container"] div {
+    color: #000000 !important;
+    font-size: 28px !important;
+    font-weight: bold;
+}
 
-    uploaded_file = st.file_uploader("Upload your PDF", type=["pdf"])
+/* metric delta */
+[data-testid="metric-container"] span {
+    color: #16a34a !important;
+}
 
-    if uploaded_file is not None:
-        st.info("Extracting data from PDF...")
-        extracted_data = extract_orders(uploaded_file)
-        if extracted_data:
-            st.success("Data extracted successfully!")
-
-            # Convert to DataFrame
-            df = pd.DataFrame(extracted_data)
-
-            st.subheader("Edit Orders Before Saving")
-            edited_df = st.data_editor(df, num_rows="dynamic")
-
-            if st.button("Save to Database"):
-                save_to_db(edited_df.to_dict(orient="records"))
-                st.success("Data saved to PostgreSQL!")
-        else:
-            st.warning("No orders found in the PDF.")
-
-# -----------------------
-# Search Orders Page
-# -----------------------
-elif menu_choice == "Search Orders":
-
-    st.title("Search Orders")
-
-    # Use in-memory list by default; database search will be triggered
-    # when the user fills the existing "Order ID" filter below.
-    orders = get_all_orders()
-
-    # import pdb; pdb.set_trace()  # Debug: check the structure of `orders` right after fetching from DB
-
-    if orders:
-
-        df_orders = pd.DataFrame(orders)
-
-        # Fill missing values
-        df_orders = df_orders.fillna("")
-
-        st.subheader("All Orders")
-
-        # Filters
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            company_filter = st.text_input("Company")
-
-        with col2:
-            order_id_filter = st.text_input("Order ID")
-
-        # If user enters an Order ID, perform a DB-backed search to include
-        # orders/returns/claims that may not be present in the in-memory list.
-        if order_id_filter:
-            orders = search_all_orders(order_id_filter)
-            # replace the dataframe source with DB search results so downstream
-            # filters operate on the returned rows
-            df_orders = pd.DataFrame(orders)
-
-        with col3:
-            courier_filter = st.text_input("Courier")
-
-        col4, col5 = st.columns(2)
-
-        with col4:
-            sku_filter = st.text_input("SKU")
-
-        with col5:
-            status_filter = st.selectbox(
-                "Status",
-                ["", "Ordered", "Shipped", "Delivered", "Returned", "Claim Submitted", "Claim Approved", "Refund Completed"]
-            )
+</style>
+""", unsafe_allow_html=True)
 
 
-        filtered_df = df_orders.copy()
-
-        
-
-        if company_filter:
-            filtered_df = filtered_df[
-                filtered_df['company_name'].str.contains(company_filter, case=False)
-            ]
-
-        if order_id_filter:
-            filtered_df = filtered_df[
-                filtered_df['order_id'].str.contains(order_id_filter, case=False)
-            ]
-
-        if courier_filter:
-            filtered_df = filtered_df[
-                filtered_df['courier_partner'].str.contains(courier_filter, case=False)
-            ]
-
-        if sku_filter:
-            filtered_df = filtered_df[
-                filtered_df['sku_id'].str.contains(sku_filter, case=False)
-            ]
-
-        if status_filter:
-            filtered_df = filtered_df[
-                filtered_df['status'] == status_filter
-            ]
-
-        filtered_df = filtered_df.fillna("")
-
-        if "event_date" in filtered_df.columns:
-            filtered_df = filtered_df.sort_values("event_date", ascending=False)
-
-        # Sort newest first
-        # filtered_df = filtered_df.sort_values("event_date", ascending=False)
 
 
-        # Editable table
-        edited_df = st.data_editor(
-            filtered_df,
+# -----------------------------
+# SIDEBAR
+# -----------------------------
+st.sidebar.title("📦 Order Management")
+st.sidebar.markdown("---")
+
+menu = st.sidebar.radio(
+    "Navigation",
+    [
+        "📊 Dashboard",
+        "📄 Scan Orders",
+        "🔍 Search Orders",
+        "🔄 Change Status",
+        "↩️ Upload Returns",
+        "⚠️ Upload Claims",
+        "📋 Claims Dashboard",
+        "📈 Reports"
+    ]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.info("OMS v1.0")
+
+
+# -----------------------------
+# DASHBOARD
+# -----------------------------
+if menu == "📊 Dashboard":
+
+    st.title("📊 Dashboard")
+
+    try:
+        df = get_all_orders()
+
+        total_orders = len(df)
+        delivered = len(df[df["status"] == "Delivered"]) if "status" in df else 0
+        returns = len(df[df["status"] == "Returned"]) if "status" in df else 0
+        pending = total_orders - delivered
+
+    except:
+        total_orders = delivered = returns = pending = 0
+        df = pd.DataFrame()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Total Orders", total_orders)
+    col2.metric("Delivered", delivered)
+    col3.metric("Returns", returns)
+    col4.metric("Pending", pending)
+
+    st.divider()
+
+    if not df.empty and "status" in df:
+
+        st.subheader("Orders by Status")
+
+        chart = (
+            df["status"]
+            .value_counts()
+            .reset_index()
+        )
+
+        chart.columns = ["Status", "Count"]
+
+        fig = px.bar(
+            chart,
+            x="Status",
+            y="Count",
+            text="Count"
+        )
+
+        st.plotly_chart(fig, width='stretch')
+
+    st.divider()
+
+    st.subheader("Recent Orders")
+
+    if not df.empty:
+        st.dataframe(
+            df.head(20),
             width='stretch',
-            num_rows="dynamic"
+            height=400
         )
 
 
-        # Save button
-        if st.button("Save Changes"):
+# -----------------------------
+# SCAN ORDERS
+# -----------------------------
+elif menu == "📄 Scan Orders":
 
-            save_to_db(edited_df.to_dict("records"))
+    st.title("📄 Scan Orders")
 
-            st.success("Changes saved successfully!")
+    uploaded_file = st.file_uploader(
+        "Upload Order PDF",
+        type=["pdf"]
+    )
 
-    else:
+    if uploaded_file:
 
-        st.warning("No orders found")
+        with st.spinner("Extracting data..."):
+            df = extract_orders(uploaded_file)
 
-# -----------------------
-# Change Status Page
-# -----------------------
-elif menu_choice == "Change Status":
-    st.title("Change Order Status")
+        st.success("Extraction complete")
 
-    order_id_input = st.text_input("Enter Order ID to update status")
+        edited_df = st.data_editor(
+            df,
+            width='stretch',
+             num_rows="dynamic"
+         )
+
+        if st.button("💾 Save to Database"):
+
+            save_to_db(edited_df)
+
+            st.success("Saved successfully")
+
+
+# -----------------------------
+# SEARCH ORDERS
+# -----------------------------
+elif menu == "🔍 Search Orders":
+
+    st.title("🔍 Search Orders")
+
+    search = st.text_input("Enter Order ID / AWB")
+
+    if search:
+
+        results = search_all_orders(search)
+
+        if len(results) > 0:
+
+            st.success(f"{len(results)} results found")
+
+            st.dataframe(
+                results,
+                width='stretch',
+             height=500
+         )
+
+        else:
+            st.warning("No results found")
+
+
+# -----------------------------
+# CHANGE STATUS
+# -----------------------------
+elif menu == "🔄 Change Status":
+
+    st.title("🔄 Change Order Status")
+
+    order_id_input = st.text_input("Order ID")
 
     if order_id_input:
         # Fetch all orders for this ID
@@ -223,213 +245,247 @@ elif menu_choice == "Change Status":
                 st.subheader("Order Status History")
                 st.dataframe(history_df)
 
-elif menu_choice == "Return Upload":
-    st.header("Upload Returns CSV")
-    uploaded_file = st.file_uploader("Upload Returns CSV", type=["csv"])
-    if uploaded_file:
-        df = read_meesho_returns_csv(uploaded_file)
+
+# -----------------------------
+# RETURNS
+# -----------------------------
+elif menu == "↩️ Upload Returns":
+
+    st.title("↩️ Upload Returns")
+
+    file = st.file_uploader("Upload Returns CSV", type=["csv"])
+
+    if file:
+
+        df = read_meesho_returns_csv(file)
+
         st.dataframe(df)
 
-        if st.button("Insert into Database"):
+        if st.button("Upload Returns"):
+
             insert_meesho_returns(df)
-            st.success("Returns inserted successfully")
-elif menu_choice == "Order Status":
-    st.header("Order Journey Tracker")
 
-    search_value = st.text_input("Enter Order ID or AWB")
-
-    if st.button("Track Order"):
-
-        results = get_order_status(search_value)
-        # Debug: show raw results in the Streamlit UI to avoid relying on terminal logs
-        # st.subheader("Raw results from get_order_status")
-        # st.write(results)
-
-        if results:
-
-            df = pd.DataFrame(results)
-
-            # Robust parsing of `event_date`: normalize, coerce invalid values, and drop them
-            if "event_date" not in df.columns:
-                st.warning("Results do not contain an `event_date` column; timeline unavailable.")
-                # proceed to show raw results below instead of stopping the script
-                df = pd.DataFrame(results)
-                has_dates = False
-            else:
-                has_dates = True
-
-            df["event_date"] = df["event_date"].astype(str).str.strip()
-            df.loc[df["event_date"].str.lower() == "event_date", "event_date"] = pd.NA
-
-            df["event_date"] = pd.to_datetime(
-                df["event_date"], errors="coerce", infer_datetime_format=True
-            )
-
-            df = df.dropna(subset=["event_date"])
-
-            if df.empty:
-                st.warning("No valid event dates found for this order; cannot show timeline or status history.")
-                has_dates = False
-            else:
-                df = df.sort_values("event_date")
-                latest_status = df.iloc[-1]["status"]
-
-            # Ensure we have a latest_status to render the journey tracker even when dates are missing
-            if not has_dates:
-                if results and isinstance(results, list) and len(results) > 0:
-                    latest_status = results[-1].get("status")
-                else:
-                    latest_status = None
-
-            if latest_status:
-                show_journey_tracker(latest_status)
-                st.divider()
-
-                # # SHOW STATUS BADGE
-                # if latest_status == "Delivered":
-                #     st.success("Delivered")
-
-                # elif latest_status == "Returned":
-                #     st.error("Returned")
-
-            st.divider()
-
-            # # SHOW STATUS BADGE
-            # if latest_status == "Delivered":
-            #     st.success("Delivered")
-
-            # elif latest_status == "Returned":
-            #     st.error("Returned")
-
-            # elif "Claim" in latest_status:
-            #     st.warning(latest_status)
-
-            # else:
-            #     st.info(latest_status)
+            st.success("Returns uploaded")
 
 
-            # st.divider()
+# -----------------------------
+# CLAIMS
+# -----------------------------
+elif menu == "⚠️ Upload Claims":
 
-            # # TIMELINE GRAPH
-            # if px is None:
-            #     st.warning("Plotly is not installed. Install with `pip install plotly` to see the timeline chart.")
-            # else:
-            #     fig = px.scatter(
-            #         df,
-            #         x="event_date",
-            #         y="status",
-            #         title="Order Journey Timeline",
-            #         size_max=15
-            #     )
+    st.title("⚠️ Upload Claims")
 
-            #     st.plotly_chart(fig, use_container_width=True)
+    file = st.file_uploader("Upload Claims CSV", type=["csv"])
 
-            # st.divider()
+    if file:
 
-            # st.subheader("Full Order History")
+        df = read_claims_csv(file)
 
-            # Hide None/NaN in UI and ensure AWB stays as string
-            df_display = df.fillna("").astype(str)
-            st.dataframe(df_display, width='stretch')
+        st.dataframe(df)
 
-        else:
+        if st.button("Upload Claims"):
 
-            st.warning("No order found")
+            insert_claims(df)
 
-elif menu_choice == "Upload Claims":
+            st.success("Claims uploaded")
 
-    st.title("Upload Claims CSV")
 
-    uploaded_file = st.file_uploader(
-        "Upload Claims Report",
-        type=["csv"]
-    )
+# -----------------------------
+# REPORTS
+# -----------------------------
+elif menu == "📈 Reports":
 
-    if uploaded_file:
-
-        from utils.claims_csv import read_claims_csv
-        from db.insert_claims import insert_claims
-
-        records = read_claims_csv(uploaded_file)
-
-        # Convert to DataFrame for clean table preview
-        df_preview = pd.DataFrame(records).fillna("")
-
-        # Cast to string to prevent pandas from converting long numeric-like AWB to floats/ints
-        df_preview = df_preview.astype(str)
-
-        st.subheader("Preview")
-
-        st.dataframe(
-            df_preview,
-            width='stretch'
-        )
-
-        if st.button("Insert Claims"):
-
-            insert_claims(records)
-
-            st.success(f"{len(records)} claims inserted successfully")
-elif menu_choice == "Reports":
-
-    import pandas as pd
+    st.title("📈 Reports Dashboard")
 
     from db.reports import (
+        get_all_orders_df,
+        get_returns_df,
+        get_claims_df,
         get_orders_without_claims,
-        get_returned_without_claims,
-        get_claims_not_approved,
-        get_refund_pending
+        get_returns_without_claims,
+        get_claims_pending_refund
     )
 
-    st.title("Reports Dashboard")
+    # load data
+    orders_df = get_all_orders_df()
+    returns_df = get_returns_df()
+    claims_df = get_claims_df()
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Orders without Claims",
-        "Returned without Claims",
-        "Claims Pending Approval",
+    no_claim_orders = get_orders_without_claims()
+    no_claim_returns = get_returns_without_claims()
+    refund_pending = get_claims_pending_refund()
+
+    # -----------------------------
+    # METRICS
+    # -----------------------------
+
+    total_orders = len(orders_df)
+    total_returns = len(returns_df)
+    total_claims = len(claims_df)
+    refund_pending_count = len(refund_pending)
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Total Orders", total_orders)
+    col2.metric("Total Returns", total_returns)
+    col3.metric("Total Claims", total_claims)
+    col4.metric("Refund Pending", refund_pending_count)
+
+    st.divider()
+
+    # -----------------------------
+    # TABS
+    # -----------------------------
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "All Orders",
+        "Returns",
+        "Claims",
+        "Orders Without Claims",
         "Refund Pending"
     ])
 
+    # -----------------------------
+    # ALL ORDERS
+    # -----------------------------
 
     with tab1:
+        st.subheader("All Orders")
+        st.dataframe(
+            orders_df,
+            width='stretch',
+            height=500
+        )
 
-        data = get_orders_without_claims()
-
-        df = pd.DataFrame(data).fillna("")
-
-        st.dataframe(df, width="stretch")
-
-        st.info(f"{len(df)} orders without claims")
-
+    # -----------------------------
+    # RETURNS
+    # -----------------------------
 
     with tab2:
+        st.subheader("Returns")
+        st.dataframe(
+            returns_df,
+            width='stretch',
+            height=500
+        )
 
-        data = get_returned_without_claims()
-
-        df = pd.DataFrame(data).fillna("")
-
-        st.dataframe(df, width="stretch")
-
-        st.warning(f"{len(df)} returned orders without claims")
-
+    # -----------------------------
+    # CLAIMS
+    # -----------------------------
 
     with tab3:
+        st.subheader("Claims")
+        st.dataframe(
+            claims_df,
+            width='stretch',
+            height=500
+        )
 
-        data = get_claims_not_approved()
-
-        df = pd.DataFrame(data).fillna("")
-
-        st.dataframe(df, width="stretch")
-
-        st.warning(f"{len(df)} claims pending approval")
-
+    # -----------------------------
+    # ORDERS WITHOUT CLAIMS
+    # -----------------------------
 
     with tab4:
+        st.subheader("Orders Without Claims")
+        st.dataframe(
+            no_claim_orders,
+            width='stretch',
+            height=500
+        )
 
-        data = get_refund_pending()
+    # -----------------------------
+    # REFUND PENDING
+    # -----------------------------
 
-        df = pd.DataFrame(data).fillna("")
+    with tab5:
+        st.subheader("Refund Pending")
+        st.dataframe(
+            refund_pending,
+            width='stretch',
+            height=500
+        )
 
-        st.dataframe(df, width="stretch")
 
-        st.warning(f"{len(df)} refunds pending")
+# -----------------------------
+# CLAIMS DASHBOARD
+# -----------------------------
+elif menu == "📋 Claims Dashboard":
+
+    st.title("📋 Claims Dashboard")
+
+    # get claims data
+    try:
+        from db.reports import get_all_claims   # or your claims fetch function
+        claims_df = get_all_claims()
+
+    except:
+        st.error("Unable to load claims data")
+        claims_df = pd.DataFrame()
+
+    if claims_df.empty:
+        st.warning("No claims found")
+        st.stop()
+
+    # -------------------------
+    # METRICS (render only if data & columns exist)
+    # -------------------------
+    if not claims_df.empty:
+        total_claims = len(claims_df)
+        if "ticket_status" in claims_df:
+            pending = len(claims_df[claims_df["ticket_status"] == "Open"])
+            approved = len(claims_df[claims_df["ticket_status"] == "Approved"])
+            rejected = len(claims_df[claims_df["ticket_status"] == "Rejected"])
+        else:
+            pending = approved = rejected = 0
+
+        refunded = len(claims_df[claims_df["refund_status"] == "Refunded"]) if "refund_status" in claims_df else 0
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total Claims", total_claims)
+        col2.metric("Open", pending)
+        col3.metric("Approved", approved)
+        col4.metric("Rejected", rejected)
+        col5.metric("Refunded", refunded)
+
+        st.divider()
+
+        # -------------------------
+        # CLAIM STATUS CHART
+        # -------------------------
+        if "ticket_status" in claims_df:
+            chart = claims_df["ticket_status"].value_counts().reset_index()
+            chart.columns = ["Status", "Count"]
+            fig = px.bar(chart, x="Status", y="Count", text="Count", color="Status")
+            st.plotly_chart(fig, width='stretch')
+
+        st.divider()
+
+    # -------------------------
+    # CLAIMS TABLE (always show)
+    # -------------------------
+    st.subheader("All Claims")
+    st.dataframe(
+        claims_df,
+        width='stretch',
+        height=500
+    )
+
+    # -------------------------
+    # FILTER
+    # -------------------------
+    st.subheader("Filter Claims")
+    status_filter = st.selectbox(
+        "Filter by Status",
+        ["All", "Open", "Approved", "Rejected"]
+    )
+
+    if status_filter != "All":
+        if "ticket_status" in claims_df:
+            filtered = claims_df[claims_df["ticket_status"] == status_filter]
+        else:
+            filtered = pd.DataFrame()
+
+        st.dataframe(
+            filtered,
+            width='stretch'
+        )

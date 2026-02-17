@@ -113,3 +113,6 @@ ALTER COLUMN last_update TYPE TIMESTAMP
 USING NULLIF(TRIM(last_update),'')::timestamp;
 
 select * from claims
+
+SELECT * FROM master_order_status;
+

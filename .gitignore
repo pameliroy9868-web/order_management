@@ -1,7 +1,35 @@
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
 .venv/
+venv/
+env/
 
-# Ignore compiled Python files and caches
-**/__pycache__/
-**/*.pyc
+# Mac system files
+.DS_Store
 
-# Keep any explicit exceptions above if needed
+# Streamlit cache
+.streamlit/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Python egg files
+*.egg-info/
+
+# Environment variables
+.env

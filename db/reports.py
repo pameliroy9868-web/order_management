@@ -1,78 +1,87 @@
+import pandas as pd
 from db.db_connection import get_connection
 
 
+def run_query_df(query):
+
+    conn = get_connection()
+
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(query)
+
+        rows = cursor.fetchall()
+
+        # get column names
+        columns = [desc[0] for desc in cursor.description]
+
+        # convert to DataFrame
+        df = pd.DataFrame(rows, columns=columns)
+
+    finally:
+        cursor.close()
+        conn.close()
+
+    return df
+
+
+def get_all_orders_df():
+    query = """
+    SELECT *
+    FROM orders
+    ORDER BY order_date DESC
+    """
+    return run_query_df(query)
+
+
+def get_returns_df():
+    query = """
+    SELECT *
+    FROM meesho_returns
+    ORDER BY created_at DESC
+    """
+    return run_query_df(query)
+
+
+def get_claims_df():
+    query = """
+    SELECT *
+    FROM claims
+    ORDER BY created_at DESC
+    """
+    return run_query_df(query)
+
+
 def get_orders_without_claims():
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
     query = """
-
-    SELECT
-        o.order_id,
-        o.awb_number,
-        o.company_name,
-        o.courier_partner,
-        o.sku_id,
-        o.order_date,
-        'No Claim' AS report_type
-
+    SELECT o.*
     FROM orders o
-
     LEFT JOIN claims c
-        ON c.suborder_number = o.order_id
-
-    WHERE c.suborder_number IS NULL
-
-    ORDER BY o.order_date DESC NULLS LAST
-
+    ON o.order_id::text = c.order_number::text
+    WHERE c.order_number IS NULL
     """
-
-    cursor.execute(query)
-
-    rows = cursor.fetchall()
-
-    cursor.close()
-    conn.close()
-
-    return [dict(row) for row in rows]
+    return run_query_df(query)
 
 
-
-def get_returned_without_claims():
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
+def get_returns_without_claims():
     query = """
-
-    SELECT
-        r.suborder_number AS order_id,
-        r.awb_number,
-        r.courier_partner,
-        r.return_created_date,
-        'Returned but No Claim' AS report_type
-
+    SELECT r.*
     FROM meesho_returns r
-
     LEFT JOIN claims c
-        ON c.suborder_number = r.suborder_number
-
+    ON r.suborder_number::text = c.suborder_number::text
     WHERE c.suborder_number IS NULL
-
-    ORDER BY r.return_created_date DESC NULLS LAST
-
     """
+    return run_query_df(query)
 
-    cursor.execute(query)
 
-    rows = cursor.fetchall()
-
-    cursor.close()
-    conn.close()
-
-    return [dict(row) for row in rows]
-
+def get_claims_pending_refund():
+    query = """
+    SELECT *
+    FROM claims
+    WHERE COALESCE(ticket_status,'') != 'Refunded'
+    """
+    return run_query_df(query)
 
 
 def get_claims_not_approved():
@@ -140,3 +149,27 @@ def get_refund_pending():
     conn.close()
 
     return [dict(row) for row in rows]
+
+def get_all_claims():
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    query = """
+    SELECT *
+    FROM claims
+    ORDER BY created_at DESC
+    """
+
+    cursor.execute(query)
+
+    rows = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    # convert fetched rows to list-of-dicts then DataFrame for proper columns
+    try:
+        df = pd.DataFrame([dict(r) for r in rows])
+    except Exception:
+        df = pd.DataFrame()
+    return df

@@ -7,66 +7,103 @@ def get_order_status(search_value):
     cursor = conn.cursor()
 
     query = """
-    SELECT * FROM (
+
+    WITH combined AS (
+
+        -- ORDERED
+        SELECT
+            order_id,
+            awb_number,
+            'Ordered' AS status,
+            COALESCE(order_date::text, '1900-01-01') AS event_date
+        FROM orders
+
+
+        UNION ALL
+
+
+        -- RETURNED
+        SELECT
+            suborder_number AS order_id,
+            awb_number,
+            'Returned' AS status,
+            COALESCE(return_created_date::text, '1900-01-01') AS event_date
+        FROM meesho_returns
+
+
+        UNION ALL
+
+
+        -- CLAIM SUBMITTED
+        SELECT
+            suborder_number AS order_id,
+            NULL AS awb_number,
+            'Claim Submitted' AS status,
+            COALESCE(
+                NULLIF(created_date::text, ''),
+                '1900-01-01'
+            ) AS event_date
+        FROM claims
+
+
+        UNION ALL
+
+
+        -- CLAIM APPROVED
+        SELECT
+            suborder_number AS order_id,
+            NULL AS awb_number,
+            'Claim Approved' AS status,
+            COALESCE(
+                NULLIF(created_date::text, ''),
+                '1900-01-01'
+            ) AS event_date
+        FROM claims
+        WHERE ticket_status ILIKE '%%approved%%'
+
+
+        UNION ALL
+
+
+        -- REFUND COMPLETED
+        SELECT
+            suborder_number AS order_id,
+            NULL AS awb_number,
+            'Refund Completed' AS status,
+            COALESCE(
+                NULLIF(created_date::text, ''),
+                '1900-01-01'
+            ) AS event_date
+        FROM claims
+        WHERE ticket_status ILIKE '%%refund%%'
+
+    )
+
 
     SELECT
         order_id,
         awb_number,
-        'Ordered' as status,
-        order_date as event_date
-    FROM orders
-    WHERE order_id ILIKE %s OR awb_number ILIKE %s
+        status,
+        event_date
+    FROM combined
 
-    UNION ALL
+    WHERE
+        order_id ILIKE %s
+        OR COALESCE(awb_number,'') ILIKE %s
 
-    SELECT
-        suborder_number as order_id,
-        awb_number,
-        return_status as status,
-        return_created_date as event_date
-    FROM meesho_returns
-    WHERE suborder_number ILIKE %s OR awb_number ILIKE %s
-
-    ) AS combined
-
-    ORDER BY COALESCE(event_date, '1900-01-01') ASC
+    ORDER BY event_date ASC
 
     """
 
     like = f"%{search_value}%"
 
-    params = (like, like, like, like)
-
-    # Print raw query with values substituted
-    raw_query = cursor.mogrify(query, params).decode("utf-8")
-
-    # print("\n===== EXECUTING RAW SQL =====")
-    # print(raw_query)
-    # print("=============================\n")
-
-    cursor.execute(query, params)
-
+    cursor.execute(query, (like, like))
 
     rows = cursor.fetchall()
+
     results = [dict(row) for row in rows]
-
-    # Filter out header-like rows where every value equals the column name
-    filtered_results = []
-    for r in results:
-        try:
-            # skip header-like rows
-            if all(str(v).strip().lower() == k.strip().lower() for k, v in r.items()):
-                continue
-
-            # FIX NULL event_date
-            if r.get("event_date") is None:
-                r["event_date"] = "1900-01-01"
-        except Exception:
-            pass
-        
-        filtered_results.append(r)
 
     cursor.close()
     conn.close()
 
-    return filtered_results
+    return results

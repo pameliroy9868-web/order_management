@@ -1,4 +1,4 @@
-from db.connection import get_connection
+from db.db_connection import get_connection
 
 
 def search_all_orders(search_value):
@@ -44,6 +44,25 @@ def search_all_orders(search_value):
         OR awb_number ILIKE %s
         OR sku ILIKE %s
 
+
+    UNION ALL
+
+    SELECT
+        'CLAIM' as source,
+        order_number as order_id,
+        sku,
+        NULL as awb_number,
+        NULL as courier_partner,
+        created_date as order_date,
+        NULL as invoice_date,
+        ticket_status as return_status,
+        issue as return_reason
+    FROM claims
+    WHERE
+        order_number ILIKE %s
+        OR suborder_number ILIKE %s
+        OR sku ILIKE %s
+
     ORDER BY order_id
 
     """
@@ -53,16 +72,21 @@ def search_all_orders(search_value):
     cursor.execute(query, (
 
         like_value, like_value, like_value,
+        like_value, like_value, like_value,
         like_value, like_value, like_value
 
     ))
 
-    columns = [col[0] for col in cursor.description]
+    # columns = [col[0] for col in cursor.description]
 
-    results = [
-        dict(zip(columns, row))
-        for row in cursor.fetchall()
-    ]
+    rows = cursor.fetchall()
+    # results = [
+    #     dict(zip(columns, row))
+    #     for row in cursor.fetchall()
+    # ]
+    results = [dict(row) for row in rows]
+
+    print(f"Search for '{search_value}' returned {len(results)} results.")
 
     cursor.close()
     conn.close()

@@ -32,6 +32,15 @@ def get_all_orders():
             COALESCE(return_created_date, DATE '1900-01-01') AS event_date
         FROM meesho_returns
 
+        UNION ALL
+
+        SELECT
+        suborder_number AS order_id,
+        NULL AS awb_number,
+        ticket_status AS status,
+        created_date AS event_date
+        FROM claims
+
     ),
 
     latest AS (

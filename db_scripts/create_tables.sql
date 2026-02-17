@@ -68,3 +68,48 @@ SELECT * FROM (
     WHERE suborder_number ILIKE '%193098461679219712_1%' OR awb_number ILIKE '%193098461679219712_1%'
     ) AS combined
     ORDER BY COALESCE(event_date, '1900-01-01') ASC
+
+    UNION ALL
+
+    SELECT
+        'CLAIM' as source,
+        order_number as order_id,
+        sku,
+        NULL as awb_number,
+        NULL as courier_partner,
+        created_date as order_date,
+        NULL as invoice_date,
+        ticket_status as return_status,
+        issue as return_reason
+    FROM claims
+    WHERE
+        order_number ILIKE '%249554005750392128%'
+        OR sku ILIKE '%249554005750392128%'
+
+
+
+SELECT
+        'CLAIM' as source,
+        order_number as order_id,
+        sku,
+        NULL as awb_number,
+        NULL as courier_partner,
+        created_date as order_date,
+        NULL as invoice_date,
+        ticket_status as return_status,
+        issue as return_reason
+    FROM claims
+    WHERE
+        order_number ILIKE '%249554005750392128%'
+        or suborder_number ILIKE '%249554005750392128%'
+        OR sku ILIKE '%249554005750392128%'
+
+ALTER TABLE claims
+ALTER COLUMN created_date TYPE TIMESTAMP
+USING NULLIF(TRIM(created_date),'')::timestamp;
+
+ALTER TABLE claims
+ALTER COLUMN last_update TYPE TIMESTAMP
+USING NULLIF(TRIM(last_update),'')::timestamp;
+
+select * from claims

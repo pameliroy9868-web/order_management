@@ -7,6 +7,7 @@ import pandas as pd
     # Plotly unavailable; GUI will show a warning when attempting to plot
 from scan_orders.extract_pdf import extract_orders
 from db.db import save_to_db, get_all_orders, change_order_status
+from db.search_orders import search_all_orders
 from db.create_returns import insert_meesho_returns
 from db.order_status import get_order_status
 #from utils.status_tracker import show_status_tracker
@@ -20,7 +21,7 @@ st.set_page_config(page_title="Order Management System", layout="wide")
 # -----------------------
 menu_choice = st.radio(
     "Menu",
-    ("Home", "Scan Orders", "Search Orders", "Change Status","Return Upload",  "Order Status"),
+    ("Home", "Scan Orders", "Search Orders", "Change Status","Return Upload",  "Order Status",  "Upload Claims", "Reports"),
     horizontal=True
 )
 
@@ -78,7 +79,11 @@ elif menu_choice == "Search Orders":
 
     st.title("Search Orders")
 
+    # Use in-memory list by default; database search will be triggered
+    # when the user fills the existing "Order ID" filter below.
     orders = get_all_orders()
+
+    # import pdb; pdb.set_trace()  # Debug: check the structure of `orders` right after fetching from DB
 
     if orders:
 
@@ -97,6 +102,14 @@ elif menu_choice == "Search Orders":
 
         with col2:
             order_id_filter = st.text_input("Order ID")
+
+        # If user enters an Order ID, perform a DB-backed search to include
+        # orders/returns/claims that may not be present in the in-memory list.
+        if order_id_filter:
+            orders = search_all_orders(order_id_filter)
+            # replace the dataframe source with DB search results so downstream
+            # filters operate on the returned rows
+            df_orders = pd.DataFrame(orders)
 
         with col3:
             courier_filter = st.text_input("Courier")
@@ -154,7 +167,7 @@ elif menu_choice == "Search Orders":
         # Editable table
         edited_df = st.data_editor(
             filtered_df,
-            use_container_width=True,
+            width='stretch',
             num_rows="dynamic"
         )
 
@@ -315,9 +328,108 @@ elif menu_choice == "Order Status":
 
             # st.subheader("Full Order History")
 
-            st.dataframe(df, use_container_width=True)
+            # Hide None/NaN in UI and ensure AWB stays as string
+            df_display = df.fillna("").astype(str)
+            st.dataframe(df_display, width='stretch')
 
         else:
 
             st.warning("No order found")
 
+elif menu_choice == "Upload Claims":
+
+    st.title("Upload Claims CSV")
+
+    uploaded_file = st.file_uploader(
+        "Upload Claims Report",
+        type=["csv"]
+    )
+
+    if uploaded_file:
+
+        from utils.claims_csv import read_claims_csv
+        from db.insert_claims import insert_claims
+
+        records = read_claims_csv(uploaded_file)
+
+        # Convert to DataFrame for clean table preview
+        df_preview = pd.DataFrame(records).fillna("")
+
+        # Cast to string to prevent pandas from converting long numeric-like AWB to floats/ints
+        df_preview = df_preview.astype(str)
+
+        st.subheader("Preview")
+
+        st.dataframe(
+            df_preview,
+            width='stretch'
+        )
+
+        if st.button("Insert Claims"):
+
+            insert_claims(records)
+
+            st.success(f"{len(records)} claims inserted successfully")
+elif menu_choice == "Reports":
+
+    import pandas as pd
+
+    from db.reports import (
+        get_orders_without_claims,
+        get_returned_without_claims,
+        get_claims_not_approved,
+        get_refund_pending
+    )
+
+    st.title("Reports Dashboard")
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Orders without Claims",
+        "Returned without Claims",
+        "Claims Pending Approval",
+        "Refund Pending"
+    ])
+
+
+    with tab1:
+
+        data = get_orders_without_claims()
+
+        df = pd.DataFrame(data).fillna("")
+
+        st.dataframe(df, width="stretch")
+
+        st.info(f"{len(df)} orders without claims")
+
+
+    with tab2:
+
+        data = get_returned_without_claims()
+
+        df = pd.DataFrame(data).fillna("")
+
+        st.dataframe(df, width="stretch")
+
+        st.warning(f"{len(df)} returned orders without claims")
+
+
+    with tab3:
+
+        data = get_claims_not_approved()
+
+        df = pd.DataFrame(data).fillna("")
+
+        st.dataframe(df, width="stretch")
+
+        st.warning(f"{len(df)} claims pending approval")
+
+
+    with tab4:
+
+        data = get_refund_pending()
+
+        df = pd.DataFrame(data).fillna("")
+
+        st.dataframe(df, width="stretch")
+
+        st.warning(f"{len(df)} refunds pending")

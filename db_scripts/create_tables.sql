@@ -112,7 +112,18 @@ ALTER TABLE claims
 ALTER COLUMN last_update TYPE TIMESTAMP
 USING NULLIF(TRIM(last_update),'')::timestamp;
 
-select * from claims
 
-SELECT * FROM master_order_status;
+CREATE TABLE IF NOT EXISTS payments_upload (
+    id SERIAL PRIMARY KEY,
+    order_id VARCHAR(100) NOT NULL,
+    payment_reference VARCHAR(255),
+    amount NUMERIC(12,2),
+    payment_date TIMESTAMP,
+    raw_status VARCHAR(100),
+    settlement_status VARCHAR(50) DEFAULT 'PENDING',
+    settlement_date TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
+CREATE INDEX idx_payments_upload_order_id
+ON payments_upload(order_id);

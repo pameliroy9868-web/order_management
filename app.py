@@ -10,6 +10,8 @@ from db.create_returns import insert_meesho_returns
 from db.insert_claims import insert_claims
 from utils.claims_csv import read_claims_csv
 from utils.csv import read_meesho_returns_csv
+from db.payments import insert_payments_from_zip
+
 
 
 # -----------------------------
@@ -76,7 +78,8 @@ menu = st.sidebar.radio(
         "↩️ Upload Returns",
         "⚠️ Upload Claims",
         "📋 Claims Dashboard",
-        "📈 Reports"
+        "📈 Reports",
+        "💰 Payments Upload"
     ]
 )
 
@@ -303,7 +306,11 @@ elif menu == "📈 Reports":
         get_claims_df,
         get_orders_without_claims,
         get_returns_without_claims,
-        get_claims_pending_refund
+        get_claims_pending_refund,
+        get_payments_df,
+        get_outstanding_payments,
+        get_settled_payments,
+        get_finance_summary
     )
 
     # load data
@@ -314,6 +321,10 @@ elif menu == "📈 Reports":
     no_claim_orders = get_orders_without_claims()
     no_claim_returns = get_returns_without_claims()
     refund_pending = get_claims_pending_refund()
+    payments_df = get_payments_df()
+    outstanding_df = get_outstanding_payments()
+    settled_df = get_settled_payments()
+
 
     # -----------------------------
     # METRICS
@@ -337,12 +348,16 @@ elif menu == "📈 Reports":
     # TABS
     # -----------------------------
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "All Orders",
         "Returns",
         "Claims",
         "Orders Without Claims",
-        "Refund Pending"
+        "Refund Pending",
+        "Payments",
+        "Outstanding Payments",
+        "Settled Payments",
+        "Finance Dashboard"
     ])
 
     # -----------------------------
@@ -404,6 +419,93 @@ elif menu == "📈 Reports":
             width='stretch',
             height=500
         )
+    # -----------------------------
+    # PAYMENTS
+    # -----------------------------
+
+    with tab6:
+
+        st.subheader("All Payments")
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Total Payments", len(payments_df))
+        col2.metric("Settled", len(settled_df))
+        col3.metric("Outstanding", len(outstanding_df))
+
+        st.dataframe(
+            payments_df,
+            width='stretch',
+            height=500
+        )
+    # -----------------------------
+    # OUTSTANDING PAYMENTS
+    # -----------------------------
+
+    with tab7:
+
+        st.subheader("Outstanding Payments")
+
+        st.metric("Outstanding Count", len(outstanding_df))
+
+        st.dataframe(
+            outstanding_df,
+            width='stretch',
+            height=500
+        )
+    # -----------------------------
+    # SETTLED PAYMENTS
+    # -----------------------------
+
+    with tab8:
+
+        st.subheader("Settled Payments")
+
+        st.metric("Settled Count", len(settled_df))
+
+        st.dataframe(
+            settled_df,
+            width='stretch',
+            height=500
+        )
+
+    # -----------------------------
+    # FINANCE DASHBOARD
+    # -----------------------------
+
+    with tab9:
+
+        st.subheader("Finance Dashboard")
+
+        summary = get_finance_summary()
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "Total Amount",
+            f"₹ {summary['total_amount']:,.2f}"
+        )
+
+        col2.metric(
+            "Settled Amount",
+            f"₹ {summary['settled_amount']:,.2f}"
+        )
+
+        col3.metric(
+            "Outstanding Amount",
+            f"₹ {summary['outstanding_amount']:,.2f}"
+        )
+
+        st.divider()
+
+        col4, col5, col6 = st.columns(3)
+
+        col4.metric("Total Payments", summary["total_payments"])
+
+        col5.metric("Settled Count", summary["settled_count"])
+
+        col6.metric("Outstanding Count", summary["outstanding_count"])
+
 
 
 # -----------------------------
@@ -489,3 +591,23 @@ elif menu == "📋 Claims Dashboard":
             filtered,
             width='stretch'
         )
+
+elif menu == "💰 Payments Upload":
+
+    st.title("Upload Meesho Payments")
+
+    from db.payments import insert_payments_from_zip
+    import io
+
+    zip_file = st.file_uploader("Upload Meesho ZIP", type=["zip"])
+
+    if zip_file:
+        with st.spinner("Importing payments..."):
+            try:
+                zip_bytes = io.BytesIO(zip_file.read())
+                insert_payments_from_zip(zip_bytes)
+                st.success("Payments uploaded and settlement status updated")
+            except Exception as e:
+                st.error(f"Failed to process payments zip: {e}")
+
+    
